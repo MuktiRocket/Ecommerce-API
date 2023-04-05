@@ -3,6 +3,8 @@ const User = require("../model/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { genSaltSync, hashSync } = require("bcrypt");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const uuid = require("uuid").v4;
 
 const createUser = async (req, res) => {
   const transact = await sequelize.transaction();
@@ -114,9 +116,50 @@ const generateToken = (id) => {
   });
 };
 
+const stripePayIntegration = async (req, res) => {
+  let error, status;
+  try {
+    const { product, token } = req.body;
+    const customer = await stripe.customers.create({
+      email: token.email,
+      source: token.id,
+    });
+    const key = uuid();
+    const charge = await stripe.charges.create(
+      {
+        amount: product.price * 100,
+        currency: "usd",
+        customer: customer.id,
+        receipt_email: token.email,
+        description: `Purchased the ${product.name}`,
+        shipping: {
+          name: token.card.name,
+          address: {
+            line1: token.card.address_line1,
+            line2: token.card.address_line2,
+            city: token.card.address_city,
+            country: token.card.address_country,
+            postal_code: token.card.address_zip,
+          },
+        },
+      },
+      {
+        key,
+      }
+    );
+    status = "success";
+  } catch (error) {
+    status = "failure";
+  }
+  res.json({
+    status,
+  });
+};
+
 module.exports = {
   createUser,
   getUsers,
   loginUser,
   generateToken,
+  stripePayIntegration
 };
